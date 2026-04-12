@@ -1,7 +1,7 @@
 -- ======================================================
--- 👑 MxF HUB - RIVALS VERSION (V.1.0.0.14 - DEV MODE)
+-- 👑 MxF HUB - RIVALS VERSION (V.1.0.0.15 - DEV MODE)
 -- Token Security: DISABLED (For testing)
--- Added: Spinbot 360, Multi-Point Visibility Check, Instant Hard Lock
+-- Fixes: Removed Strict Double WallCheck breaking Aimbot/TriggerBot
 -- ======================================================
 
 local Players = game:GetService("Players")
@@ -34,7 +34,7 @@ local CurrentSettings = {
 	hitboxEnabled = false, hitboxSize = 10, rainbowHitbox = false,
 	walkSpeedEnabled = false, walkSpeedValue = 50, infJumpEnabled = false,
 	noClipEnabled = false, flyEnabled = false, flySpeedValue = 50,
-	spinbotEnabled = false, spinbotSpeed = 50, -- NEW: Spinbot
+	spinbotEnabled = false, spinbotSpeed = 50,
 	followTargetName = ""
 }
 
@@ -88,7 +88,6 @@ end
 
 local function isVisible(targetPos)
     if not CurrentSettings.wallCheckEnabled then return true end
-    local camera = workspace.CurrentCamera
     local origin = camera.CFrame.Position
     local direction = (targetPos - origin)
     local raycastParams = RaycastParams.new()
@@ -109,8 +108,7 @@ local function isVisible(targetPos)
     return true 
 end
 
--- 🚀 MULTI-POINT SCANNING 🚀
-local function getBestVisiblePart(char)
+local function getSpecificPart(char)
     local partChoice = CurrentSettings.selectedAimPart
     if partChoice == "Random" then
         local choices = {"Head", "Torso", "Legs"}
@@ -118,20 +116,19 @@ local function getBestVisiblePart(char)
     end
 
     local primaryPart = nil
-    if partChoice == "Head" then 
-        primaryPart = char:FindFirstChild("Head") or char:FindFirstChild("HeadHitbox")
-    elseif partChoice == "Torso" then 
-        primaryPart = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
-    elseif partChoice == "Legs" then 
-        primaryPart = char:FindFirstChild("RightLowerLeg") or char:FindFirstChild("Right Leg") or char:FindFirstChild("LeftLowerLeg")
-    end
-    
-    if not primaryPart then primaryPart = char:FindFirstChild("HumanoidRootPart") end
+    pcall(function()
+        if partChoice == "Head" then 
+            primaryPart = char:FindFirstChild("Head") or char:FindFirstChild("HeadHitbox")
+        elseif partChoice == "Torso" then 
+            primaryPart = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso") or char:FindFirstChild("HumanoidRootPart")
+        elseif partChoice == "Legs" then 
+            primaryPart = char:FindFirstChild("RightLowerLeg") or char:FindFirstChild("Right Leg") or char:FindFirstChild("LeftLowerLeg")
+        end
+        if not primaryPart then primaryPart = char:FindFirstChild("HumanoidRootPart") end
+    end)
 
-    -- Check Primary Part First
     if primaryPart and isVisible(primaryPart.Position) then return primaryPart end
 
-    -- Fallback: Scan all other parts if primary is hidden (Smart Aim)
     local fallbackParts = {
         char:FindFirstChild("Head"), char:FindFirstChild("UpperTorso"), char:FindFirstChild("LowerTorso"),
         char:FindFirstChild("RightUpperArm"), char:FindFirstChild("LeftUpperArm"),
@@ -139,16 +136,13 @@ local function getBestVisiblePart(char)
     }
     
     for _, part in ipairs(fallbackParts) do
-        if part and isVisible(part.Position) then
-            return part -- Retourne la première partie visible qu'il trouve
-        end
+        if part and isVisible(part.Position) then return part end
     end
 
-    return nil -- Complètement caché
+    return nil
 end
 
 local function getTargetForAim()
-    local camera = workspace.CurrentCamera
     local closestPart = nil
     local shortestDistance = CurrentSettings.fovRadius
     local centerPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
@@ -158,13 +152,11 @@ local function getTargetForAim()
         if CurrentSettings.teamCheck and p.Team ~= nil and player.Team ~= nil and p.Team == player.Team then continue end
         
         if p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            local targetPart = getBestVisiblePart(p.Character)
+            local targetPart = getSpecificPart(p.Character)
             if targetPart then
                 local checkPos = targetPart.Position
                 if CurrentSettings.predictionEnabled then
-                    pcall(function()
-                        checkPos = checkPos + (targetPart.AssemblyLinearVelocity * CurrentSettings.predictionFactor)
-                    end)
+                    pcall(function() checkPos = checkPos + (targetPart.AssemblyLinearVelocity * CurrentSettings.predictionFactor) end)
                 end
                 
                 local pos, onScreen = camera:WorldToViewportPoint(checkPos)
@@ -180,7 +172,6 @@ local function getTargetForAim()
     return closestPart
 end
 
--- --- ESP RENDER LOOP ---
 local function updateESP()
     hue = hue + 0.005; if hue > 1 then hue = 0 end
     local rainbowColor = Color3.fromHSV(hue, 1, 1)
@@ -240,7 +231,7 @@ local function updateESP()
     end
 end
 
--- --- MAIN RENDER LOOP (MAX PRIORITY OVERRIDE) ---
+-- --- MAIN RENDER LOOP ---
 pcall(function() RunService:UnbindFromRenderStep("MxF_MasterLoop") end)
 RunService:BindToRenderStep("MxF_MasterLoop", Enum.RenderPriority.Camera.Value + 50, function()
     pcall(function()
@@ -277,48 +268,42 @@ RunService:BindToRenderStep("MxF_MasterLoop", Enum.RenderPriority.Camera.Value +
 
         if isMenuOpen then return end
 
-        -- 🚀 GOD-TIER AIMBOT (INSTANT HARD LOCK OPTION) 🚀
+        -- 🚀 AIMBOT & TRIGGERBOT (SANS LE DOUBLE WALLCHECK CASSÉ) 🚀
         if CurrentSettings.aimbotEnabled and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) and predictedPos then
-            if isVisible(predictedPos) then
-                local targetPos = predictedPos
-                if CurrentSettings.missChance > 0 and math.random(1, 100) <= CurrentSettings.missChance then 
-                    targetPos = targetPos + Vector3.new(math.random(-3,3), math.random(-3,3), math.random(-3,3)) 
-                end
+            local targetPos = predictedPos
+            if CurrentSettings.missChance > 0 and math.random(1, 100) <= CurrentSettings.missChance then 
+                targetPos = targetPos + Vector3.new(math.random(-3,3), math.random(-3,3), math.random(-3,3)) 
+            end
 
-                local pos, onScreen = camera:WorldToViewportPoint(targetPos)
-                if onScreen then
-                    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-                    local diff = Vector2.new(pos.X - center.X, pos.Y - center.Y)
-                    local aimSpeed = CurrentSettings.aimSmoothness
-                    
-                    if aimSpeed == 1 then
-                        -- HARD LOCK INSTANTANE
-                        camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
-                    else
-                        -- SMOOTH LOCK
-                        aimSpeed = aimSpeed * 2
-                        if mousemoverel then mousemoverel(diff.X / aimSpeed, diff.Y / aimSpeed)
-                        else camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, targetPos), 1 / aimSpeed) end
-                    end
+            local pos, onScreen = camera:WorldToViewportPoint(targetPos)
+            if onScreen then
+                local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+                local diff = Vector2.new(pos.X - center.X, pos.Y - center.Y)
+                local aimSpeed = CurrentSettings.aimSmoothness
+                
+                if aimSpeed == 1 then
+                    camera.CFrame = CFrame.new(camera.CFrame.Position, targetPos)
+                else
+                    aimSpeed = aimSpeed * 2
+                    if mousemoverel then mousemoverel(diff.X / aimSpeed, diff.Y / aimSpeed)
+                    else camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, targetPos), 1 / aimSpeed) end
                 end
             end
         end
 
         if CurrentSettings.triggerBotEnabled and predictedPos then
-            if isVisible(predictedPos) then
-                local pos, onScreen = camera:WorldToViewportPoint(predictedPos)
-                local centerPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
-                if onScreen and (Vector2.new(pos.X, pos.Y) - centerPos).Magnitude < 30 then
-                    if CurrentSettings.missChance > 0 and math.random(1, 100) <= CurrentSettings.missChance then return end
-                    
-                    if mouse1click then 
-                        mouse1click()
-                        if CurrentSettings.rapidFire then mouse1click(); mouse1click(); mouse1click() end 
-                    else
-                        VIM:SendMouseButtonEvent(centerPos.X, centerPos.Y, 0, true, game, 0)
-                        if not CurrentSettings.rapidFire then task.wait(0.01) end
-                        VIM:SendMouseButtonEvent(centerPos.X, centerPos.Y, 0, false, game, 0)
-                    end
+            local pos, onScreen = camera:WorldToViewportPoint(predictedPos)
+            local centerPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+            if onScreen and (Vector2.new(pos.X, pos.Y) - centerPos).Magnitude < 30 then
+                if CurrentSettings.missChance > 0 and math.random(1, 100) <= CurrentSettings.missChance then return end
+                
+                if mouse1click then 
+                    mouse1click()
+                    if CurrentSettings.rapidFire then mouse1click(); mouse1click(); mouse1click() end 
+                else
+                    VIM:SendMouseButtonEvent(centerPos.X, centerPos.Y, 0, true, game, 0)
+                    if not CurrentSettings.rapidFire then task.wait(0.01) end
+                    VIM:SendMouseButtonEvent(centerPos.X, centerPos.Y, 0, false, game, 0)
                 end
             end
         end
@@ -328,7 +313,6 @@ end)
 -- --- HITBOX EXPANDER & SPINBOT ---
 RunService.Heartbeat:Connect(function()
     pcall(function()
-        -- SPINBOT 360 LOGIC
         if CurrentSettings.spinbotEnabled and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
             player.Character.HumanoidRootPart.CFrame = player.Character.HumanoidRootPart.CFrame * CFrame.Angles(0, math.rad(CurrentSettings.spinbotSpeed), 0)
         end
@@ -467,7 +451,7 @@ activeTabName.Size = UDim2.new(1, 0, 0, 45); activeTabName.BackgroundTransparenc
 
 local versionLbl = Instance.new("TextLabel", mainFrame)
 versionLbl.Size = UDim2.new(0, 300, 0, 20); versionLbl.Position = UDim2.new(1, -15, 1, -10); versionLbl.AnchorPoint = Vector2.new(1, 1); versionLbl.BackgroundTransparency = 1
-versionLbl.Text = "V.1.0.0.14 | Rivals Edition © MxFlow"; versionLbl.TextXAlignment = Enum.TextXAlignment.Right; versionLbl:SetAttribute("TextRole", "TextDim"); versionLbl:SetAttribute("BaseTextSize", 11)
+versionLbl.Text = "V.1.0.0.15 | Rivals Edition © MxFlow"; versionLbl.TextXAlignment = Enum.TextXAlignment.Right; versionLbl:SetAttribute("TextRole", "TextDim"); versionLbl:SetAttribute("BaseTextSize", 11)
 
 local function ApplyTheme()
 	pcall(function()
@@ -654,14 +638,14 @@ CreateSlider(secESPColor, "Green Color (G)", 0, 255, CurrentSettings.espG, funct
 CreateSlider(secESPColor, "Blue Color (B)", 0, 255, CurrentSettings.espB, function(v) CurrentSettings.espB = v; SaveSettings() end)
 
 -- --- PAGE AIM ---
-local secAim = CreateSection(pgAim, "Camera Aimbot (Hold Right Click)", true)
+local secAim = CreateSection(pgAim, "Camera Aimbot & Prediction", true)
 CreateToggle(secAim, "Enable Camera Aimbot", CurrentSettings.aimbotEnabled, function(v) CurrentSettings.aimbotEnabled = v; SaveSettings() end)
 CreateToggle(secAim, "Team Check (Ignore Allies)", CurrentSettings.teamCheck, function(v) CurrentSettings.teamCheck = v; SaveSettings() end)
 CreateToggle(secAim, "Pro Prediction (Velocity Math)", CurrentSettings.predictionEnabled, function(v) CurrentSettings.predictionEnabled = v; SaveSettings() end)
 CreateSlider(secAim, "Prediction Factor", 1, 50, CurrentSettings.predictionFactor * 100, function(v) CurrentSettings.predictionFactor = v / 100; SaveSettings() end)
-CreateDropdown(secAim, "Target Part (Auto-Scans if hidden)", aimTargetOptions, CurrentSettings.selectedAimPart, function(v) CurrentSettings.selectedAimPart = v; SaveSettings() end)
+CreateDropdown(secAim, "Target Part", aimTargetOptions, CurrentSettings.selectedAimPart, function(v) CurrentSettings.selectedAimPart = v; SaveSettings() end)
 CreateToggle(secAim, "Wall Check (Ignore hidden players)", CurrentSettings.wallCheckEnabled, function(v) CurrentSettings.wallCheckEnabled = v; SaveSettings() end)
-CreateSlider(secAim, "Smoothness (1=Instant Lock, 50=Slow)", 1, 50, CurrentSettings.aimSmoothness, function(v) CurrentSettings.aimSmoothness = v; SaveSettings() end)
+CreateSlider(secAim, "Smoothness (1=Snap, 50=Slow)", 1, 50, CurrentSettings.aimSmoothness, function(v) CurrentSettings.aimSmoothness = v; SaveSettings() end)
 CreateSlider(secAim, "FOV Radius", 50, 500, CurrentSettings.fovRadius, function(v) CurrentSettings.fovRadius = v; SaveSettings() end)
 
 local secTrigger = CreateSection(pgAim, "TriggerBot (Auto-Shoot)", false)
@@ -749,4 +733,4 @@ end)
 -- INIT
 ApplyTheme()
 if tabFunctions["Home"] then tabFunctions["Home"]() end
-print("MxFlow Menu V1.0.0.14 (God-Tier Aim & Spinbot) Loaded Successfully!")
+print("MxFlow Menu V1.0.0.15 (Aim Fix Update) Loaded Successfully!")
